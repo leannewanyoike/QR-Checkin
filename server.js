@@ -25,6 +25,8 @@
 
 const http = require('http');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const PORT = process.env.PORT || 3002;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'dev-secret-change-me';
@@ -203,6 +205,14 @@ async function handlePrinterWebhook(req, res) {
     return sendJSON(res, 404, { error: 'unknown print job' });
   }
 
+  if (job.attendeeId !== attendeeId) {
+    return sendJSON(res, 400, { error: 'job does not belong to attendee' });
+  }
+
+  if (!['completed', 'failed'].includes(status)) {
+    return sendJSON(res, 400, { error: `unrecognized status '${status}'` });
+  }
+
   // Idempotency: if we already processed this job (e.g. vendor retried the
   // webhook), don't process it again.
   if (job.status !== 'queued') {
@@ -212,6 +222,13 @@ async function handlePrinterWebhook(req, res) {
   const attendee = attendees.get(attendeeId);
   if (!attendee) {
     return sendJSON(res, 404, { error: 'unknown attendee' });
+  }
+
+  // A failed job may be retried before a delayed callback arrives. A stale
+  // callback must never change the state of the newer job.
+  if (attendee.printJobId !== jobId) {
+    job.status = status;
+    return sendJSON(res, 200, { ok: true, note: 'stale webhook ignored' });
   }
 
   if (status === 'completed') {
@@ -224,8 +241,6 @@ async function handlePrinterWebhook(req, res) {
     attendee.status = STATUS.NOT_CHECKED_IN;
     attendee.printJobId = null;
     console.log(`[webhook] job ${jobId} failed -> ${attendeeId} reset to not_checked_in`);
-  } else {
-    return sendJSON(res, 400, { error: `unrecognized status '${status}'` });
   }
 
   return sendJSON(res, 200, { ok: true, attendeeId, status: attendee.status });
@@ -239,12 +254,22 @@ function handleGetAttendee(res, id) {
   return sendJSON(res, 200, attendee);
 }
 
+function handleKioskPage(res) {
+  const page = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(page);
+}
+
 // ---------- server ----------
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
+    if (req.method === 'GET' && url.pathname === '/') {
+      return handleKioskPage(res);
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/check-in') {
       return await handleCheckIn(req, res);
     }
