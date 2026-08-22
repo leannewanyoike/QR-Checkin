@@ -1,10 +1,6 @@
 /**
- * QR Check-in / Print Webhook Flow — dependency-free version
- *
- * Same flow as before, rebuilt on Node's built-in `http` module instead
- * of Express. No package.json dependencies, no `npm install` step --
- * just `node server.js`. Good fit for Render's free tier since there's
- * nothing to build.
+ * QR Check-in / Print Webhook Flow 
+
  *
  * Flow:
  *  1. QR scanned -> POST /api/check-in
@@ -13,11 +9,7 @@
  *  4. Vendor prints the badge, then calls POST /webhooks/printer when done
  *  5. Webhook marks the attendee 'checked_in'
  *
- * No real print vendor is available for this prototype, so
- * publishPrintRequest() simulates one: it "queues" the job and, after a
- * short delay, calls our own webhook exactly the way a real vendor would
- * -- over HTTP, with a signed payload. Swap that function out for a real
- * vendor SDK/API call later; nothing else needs to change.
+
  *
  * Run:
  *   node server.js
