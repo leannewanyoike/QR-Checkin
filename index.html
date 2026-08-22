@@ -1,1 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Solstice Events | Check-in</title>
+  <style>
+    :root { --ink: #102a43; --muted: #627d98; --paper: #f7f9fc; --teal: #087f8c; --gold: #f0b429; --line: #d9e2ec; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; color: var(--ink); background: radial-gradient(circle at 15% 10%, #fff4d6 0 18%, transparent 42%), linear-gradient(135deg, #e6fffa, var(--paper) 55%, #fff); font-family: Georgia, 'Times New Roman', serif; }
+    main { width: min(100%, 620px); padding: clamp(28px, 6vw, 64px); background: rgba(255,255,255,.9); border: 1px solid rgba(16,42,67,.1); box-shadow: 0 24px 70px rgba(16,42,67,.12); }
+    .mark { display: inline-block; width: 42px; height: 6px; margin-bottom: 24px; background: var(--gold); }
+    h1 { margin: 0; font-size: clamp(2.4rem, 7vw, 4.6rem); line-height: .95; letter-spacing: -.04em; }
+    p { color: var(--muted); font-family: Arial, sans-serif; line-height: 1.5; }
+    form { display: flex; gap: 10px; margin-top: 32px; }
+    input, button { min-height: 52px; border: 1px solid var(--line); font: 600 1rem Arial, sans-serif; }
+    input { flex: 1; min-width: 0; padding: 0 16px; color: var(--ink); }
+    button { padding: 0 22px; color: white; background: var(--teal); border-color: var(--teal); cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .65; }
+    #result { min-height: 58px; margin: 28px 0 0; padding: 16px; border-left: 4px solid var(--gold); background: #fffaf0; }
+    #result.pending { border-color: var(--teal); background: #e6fffa; }
+    #result.success { border-color: #2f855a; background: #f0fff4; }
+    .eyebrow { margin: 0 0 12px; color: var(--teal); font: 700 .75rem Arial, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+    @media (max-width: 480px) { form { flex-direction: column; } button { width: 100%; } }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="mark" aria-hidden="true"></span>
+    <p class="eyebrow">Solstice Events Co.</p>
+    <h1>Welcome to the conference.</h1>
+    <p>Scan an attendee badge to begin printing. Check-in completes when the printer confirms the badge is ready.</p>
+    <form id="check-in-form">
+      <label hidden for="attendee-id">Attendee ID</label>
+      <input id="attendee-id" name="attendeeId" placeholder="Enter or scan attendee ID" autocomplete="off" required>
+      <button type="submit">Check in</button>
+    </form>
+    <p id="result" role="status" aria-live="polite">Ready for the next attendee.</p>
+  </main>
+  <script>
+    const form = document.querySelector('#check-in-form');
+    const input = document.querySelector('#attendee-id');
+    const button = form.querySelector('button');
+    const result = document.querySelector('#result');
 
+    function show(message, className) {
+      result.textContent = message;
+      result.className = className || '';
+    }
+
+    async function refreshStatus(attendeeId) {
+      const response = await fetch(`/api/attendees/${encodeURIComponent(attendeeId)}`);
+      if (!response.ok) throw new Error('Unable to read attendee status');
+      return response.json();
+    }
+
+    async function waitForPrint(attendeeId) {
+      for (;;) {
+        const attendee = await refreshStatus(attendeeId);
+        if (attendee.status === 'checked_in') {
+          show(`${attendee.name || attendee.id} is checked in. Badge printed.`, 'success');
+          return;
+        }
+        if (attendee.status === 'not_checked_in') {
+          throw new Error('Printing failed. Please scan again.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const attendeeId = input.value.trim();
+      if (!attendeeId) return;
+      button.disabled = true;
+      show('Print request queued. Waiting for badge printer...', 'pending');
+      try {
+        const response = await fetch('/api/check-in', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attendeeId }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Check-in failed');
+        if (data.status === 'checked_in') {
+          show('This attendee is already checked in. No duplicate badge was printed.', 'success');
+        } else {
+          await waitForPrint(attendeeId);
+        }
+        input.value = '';
+      } catch (error) {
+        show(error.message, '');
+      } finally {
+        button.disabled = false;
+        input.focus();
+      }
+    });
+    input.focus();
+  </script>
+</body>
+</html>
